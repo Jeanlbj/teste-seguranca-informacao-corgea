@@ -69,6 +69,7 @@ public class ApostaController {
     }
 
     @PostMapping("/simular/{eventoId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public ResponseEntity<?> simularResultado(@PathVariable Long eventoId) {
         var eventoOpt = eventoService.buscarPorId(eventoId);
