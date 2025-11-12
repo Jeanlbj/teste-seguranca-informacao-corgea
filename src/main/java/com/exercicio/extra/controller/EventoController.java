@@ -1,5 +1,12 @@
 package com.exercicio.extra.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import javax.validation.Valid;
+import java.time.LocalDateTime;
 import com.exercicio.extra.dto.EventoDTO;
 import com.exercicio.extra.dto.EventoRequestDTO;
 import com.exercicio.extra.entity.Esporte;
@@ -25,6 +32,7 @@ public class EventoController {
     private final EventoService eventoService;
     private final EsporteService esporteService;
     private final TimeService timeService;
+private static final Logger logger = LoggerFactory.getLogger(EventoController.class);
 
     @GetMapping("/publicos")
     public ResponseEntity<List<EventoDTO>> listarPublicos() {
@@ -34,8 +42,10 @@ public class EventoController {
     }
 
     @PostMapping
-    public ResponseEntity<EventoDTO> criarEvento(@RequestBody EventoRequestDTO dto,
+    @PreAuthorize("hasAuthority('EVENTO_CREATE') or hasRole('ADMIN')")
+    public ResponseEntity<EventoDTO> criarEvento(@RequestBody @Valid EventoRequestDTO dto,
                                                  @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        validateEventoRequest(dto);
         Evento evento = fromDTO(dto);
         Evento salvo = eventoService.salvar(evento);
         return ResponseEntity.ok(toDTO(salvo));
@@ -45,13 +55,13 @@ public class EventoController {
         Evento evento = new Evento();
 
         Esporte esporte = esporteService.buscarPorId(dto.esporteId())
-                .orElseThrow(() -> new RuntimeException("Esporte não encontrado"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Esporte não encontrado"));
 
         Time timeA = timeService.buscarPorId(dto.timeAId())
-                .orElseThrow(() -> new RuntimeException("Time A não encontrado"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Time A não encontrado"));
 
         Time timeB = timeService.buscarPorId(dto.timeBId())
-                .orElseThrow(() -> new RuntimeException("Time B não encontrado"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Time B não encontrado"));
 
         evento.setEsporte(esporte);
         evento.setTimeA(timeA);
@@ -64,6 +74,43 @@ public class EventoController {
 
         return evento;
     }
+private void validateEventoRequest(EventoRequestDTO dto) {
+    if (dto == null) {
+        logger.warn("Tentativa de criação de evento com payload nulo");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requisição inválida");
+    }
+    if (dto.esporteId() == null || dto.timeAId() == null || dto.timeBId() == null) {
+        logger.warn("Tentativa de criação de evento com IDs obrigatórios ausentes");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "IDs de esporte e times são obrigatórios");
+    }
+    if (dto.timeAId().equals(dto.timeBId())) {
+        logger.warn("Tentativa de criação de evento com times iguais: {}", dto.timeAId());
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Times A e B devem ser diferentes");
+    }
+    if (dto.local() == null || dto.local().trim().isEmpty() || dto.local().length() > 255) {
+        logger.warn("Tentativa de criação de evento com local inválido");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Local inválido");
+    }
+    if (dto.oddTimeA() == null || dto.oddTimeA() <= 1.0
+            || dto.oddTimeB() == null || dto.oddTimeB() <= 1.0
+            || dto.oddEmpate() == null || dto.oddEmpate() <= 1.0) {
+        logger.warn("Tentativa de criação de evento com odds inválidas");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Odds devem ser maiores que 1.0");
+    }
+    if (dto.dataHora() == null) {
+        logger.warn("Tentativa de criação de evento com data/hora ausente");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Data e hora são obrigatórias");
+    }
+    try {
+        if (dto.dataHora().isBefore(LocalDateTime.now())) {
+            logger.warn("Tentativa de criação de evento com data/hora no passado");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Data/hora deve ser no futuro");
+        }
+    } catch (Exception e) {
+        logger.warn("Formato de data/hora inválido ao criar evento");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Formato de data/hora inválido");
+    }
+}
 
     private EventoDTO toDTO(Evento evento) {
         return new EventoDTO(
