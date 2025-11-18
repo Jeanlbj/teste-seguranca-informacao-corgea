@@ -503,6 +503,11 @@ static int cache_ref_iterator_seek(struct ref_iterator *ref_iterator,
 			int cmp = 0;
 
 			sort_ref_dir(dir);
+if (!dir->nr) {
+ /* Directory empty: avoid out-of-bounds access */
+ level->index = -1;
+ break;
+}
 
 			slash = strchr(slash, '/');
 			len = slash ? (size_t)(slash - refname) : strlen(refname);
@@ -519,6 +524,8 @@ static int cache_ref_iterator_seek(struct ref_iterator *ref_iterator,
 				slash = slash + 1;
 
 			level->index = idx;
+			if (idx < 0 || idx >= dir->nr)
+			 break;
 			if (dir->entries[idx]->flag & REF_DIR) {
 				/* push down a level */
 				dir = get_ref_dir(dir->entries[idx]);
